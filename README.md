@@ -49,7 +49,7 @@ Fail2Ban version – includes Fail2Ban to protect SSH from repeated login attemp
 
 Run the following commands:
 
-curl -fsSL https://raw.githubusercontent.com/Humanwithquestions/terminalx/main/JellyfinXArrStack.sh -o JellyfinXArrStack.sh
+curl -fsSL https://raw.githubusercontent.com/Humanwithquestions/jellyfix/main/JellyfinXArrStack.sh -o JellyfinXArrStack.sh
 chmod +x JellyfinXArrStack.sh
 ./JellyfinXArrStack.sh
 
@@ -67,7 +67,7 @@ The script will automatically install Docker, set up folders, configure firewall
 
 Run the Fail2Ban script for added SSH protection:
 
-curl -fsSL https://raw.githubusercontent.com/Humanwithquestions/terminalx/main/JellyfinXArrStack_Fail2Ban.sh -o JellyfinXArrStack_Fail2Ban.sh
+curl -fsSL https://raw.githubusercontent.com/Humanwithquestions/jellyfix/main/JellyfinXArrStack_Fail2Ban.sh -o JellyfinXArrStack_Fail2Ban.sh
 chmod +x JellyfinXArrStack_Fail2Ban.sh
 ./JellyfinXArrStack_Fail2Ban.sh
 
