@@ -1,41 +1,36 @@
 #!/bin/bash
 
-# JellyfinXArrStack_Fail2Ban - Debian Media Server Setup
+# JellyfinXArrStack_Fail2Ban - Debian Desktop Media Server Setup (Production + Backup)
 # User: Boss
 # -Made by TerminalX Group-
 
 set -e
 
-echo "Starting JellyfinXArrStack setup for Debian..."
+echo "Starting JellyfinXArrStack setup for Debian Desktop (Production + Backup)..."
 
 # Check if a command exists
 command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
+####################################
 # Ensure required tools
+####################################
 sudo apt update
-sudo apt install -y ca-certificates curl gnupg lsb-release
+sudo apt install -y ca-certificates curl gnupg lsb-release ufw unattended-upgrades fail2ban parted tar
 
 ####################################
 # Install Docker (Debian)
 ####################################
 if ! command_exists docker; then
     echo "Installing Docker..."
-
     sudo mkdir -p /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/debian/gpg | \
-        sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-
-    echo \
-      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
-      https://download.docker.com/linux/debian \
-      $(lsb_release -cs) stable" | \
-      sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-
+    curl -fsSL https://download.docker.com/linux/debian/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
+https://download.docker.com/linux/debian $(lsb_release -cs) stable" | \
+        sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
     sudo apt update
     sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-
     sudo systemctl enable docker
     sudo systemctl start docker
 fi
@@ -57,9 +52,16 @@ read -p "Enter your timezone (e.g., Europe/Brussels): " TIMEZONE
 sudo timedatectl set-timezone "$TIMEZONE"
 
 ####################################
-# Auto-login on tty1
+# Detect user IDs for containers
 ####################################
 USER_NAME=$(whoami)
+PUID=$(id -u "$USER_NAME")
+PGID=$(id -g "$USER_NAME")
+echo "Using PUID=$PUID and PGID=$PGID for containers."
+
+####################################
+# Auto-login on tty1
+####################################
 sudo mkdir -p /etc/systemd/system/getty@tty1.service.d
 sudo tee /etc/systemd/system/getty@tty1.service.d/override.conf > /dev/null <<EOF
 [Service]
@@ -68,42 +70,63 @@ ExecStart=-/sbin/agetty --autologin $USER_NAME --noclear %I \$TERM
 EOF
 
 ####################################
-# Disk selection
+# Prevent system sleep & screen lock (Desktop)
+####################################
+sudo sed -i 's/#HandleLidSwitch=suspend/HandleLidSwitch=ignore/' /etc/systemd/logind.conf
+sudo sed -i 's/#HandleLidSwitchDocked=suspend/HandleLidSwitchDocked=ignore/' /etc/systemd/logind.conf
+sudo sed -i 's/#IdleAction=suspend/IdleAction=ignore/' /etc/systemd/logind.conf
+sudo systemctl restart systemd-logind
+
+sudo setterm -blank 0 -powerdown 0 -powersave off
+
+if command -v gsettings >/dev/null 2>&1; then
+    gsettings set org.gnome.desktop.screensaver lock-enabled false || true
+    gsettings set org.gnome.desktop.session idle-delay 0 || true
+fi
+
+####################################
+# Disk selection and automatic partitioning
 ####################################
 echo "Available drives:"
-lsblk -f
-read -p "Select disk to use (e.g., /dev/sdb): " DISK
+lsblk -d -o NAME,SIZE,MODEL
+read -p "Select the disk to use for media server (e.g., sdb): " DISK_NAME
+DISK="/dev/$DISK_NAME"
 
 if [ ! -b "$DISK" ]; then
-    echo "Disk not found"
+    echo "Disk not found!"
     exit 1
 fi
 
-read -p "Is the disk formatted as EXT4? (y/n): " FORMATTED
-if [[ "$FORMATTED" == "n" ]]; then
-    sudo mkfs.ext4 "$DISK"
+echo "⚠ WARNING: All data on $DISK will be destroyed!"
+read -p "Type 'YES' to continue: " CONFIRM
+if [[ "$CONFIRM" != "YES" ]]; then
+    echo "Aborting."
+    exit 1
 fi
+
+sudo wipefs -a "$DISK"
+sudo parted -s "$DISK" mklabel gpt
+sudo parted -s -a optimal "$DISK" mkpart primary ext4 0% 100%
+PARTITION="${DISK}1"
+sudo mkfs.ext4 "$PARTITION"
 
 MOUNT="/mnt/media-server"
 sudo mkdir -p "$MOUNT"
-sudo mount "$DISK" "$MOUNT"
+sudo mount "$PARTITION" "$MOUNT"
 
-UUID=$(sudo blkid -s UUID -o value "$DISK")
+UUID=$(sudo blkid -s UUID -o value "$PARTITION")
 grep -q "$UUID" /etc/fstab || \
 echo "UUID=$UUID $MOUNT ext4 defaults 0 2" | sudo tee -a /etc/fstab
+echo "✅ Disk $DISK partitioned and mounted at $MOUNT"
 
 ####################################
 # Media folders
 ####################################
-sudo mkdir -p \
-    "$MOUNT/movies" \
-    "$MOUNT/series" \
-    "$MOUNT/config"
-
+sudo mkdir -p "$MOUNT/movies" "$MOUNT/series" "$MOUNT/config"
 sudo chown -R $USER_NAME:$USER_NAME "$MOUNT"
 
 ####################################
-# DNS (optional but forced here)
+# DNS
 ####################################
 sudo tee /etc/resolv.conf > /dev/null <<EOF
 nameserver 1.1.1.1
@@ -113,7 +136,6 @@ EOF
 ####################################
 # Firewall
 ####################################
-sudo apt install -y ufw
 sudo ufw allow 22/tcp
 sudo ufw allow 8096/tcp
 sudo ufw allow 9000/tcp
@@ -127,24 +149,23 @@ sudo ufw allow 6767/tcp
 sudo ufw --force enable
 
 ####################################
-# Automatic Updates
+# Automatic Updates & Fail2Ban
 ####################################
-sudo apt install -y unattended-upgrades
-sudo systemctl enable unattended-upgrades
-sudo systemctl start unattended-upgrades
+sudo systemctl enable unattended-upgrades fail2ban
+sudo systemctl start unattended-upgrades fail2ban
 
 ####################################
-# Fail2Ban
+# Docker network for isolation
 ####################################
-sudo apt install -y fail2ban
-sudo systemctl enable fail2ban
-sudo systemctl start fail2ban
+NETWORK_NAME="media"
+if ! docker network inspect "$NETWORK_NAME" >/dev/null 2>&1; then
+    docker network create "$NETWORK_NAME"
+fi
 
 ####################################
 # Docker Compose Stack
 ####################################
 COMPOSE="$MOUNT/config/docker-compose.yml"
-
 cat > "$COMPOSE" <<EOL
 version: "3.8"
 
@@ -152,6 +173,8 @@ services:
   jellyfin:
     image: jellyfin/jellyfin:latest
     container_name: jellyfin
+    networks:
+      - $NETWORK_NAME
     ports:
       - "8096:8096"
     volumes:
@@ -165,6 +188,8 @@ services:
   portainer:
     image: portainer/portainer-ce:latest
     container_name: portainer
+    networks:
+      - $NETWORK_NAME
     ports:
       - "9000:9000"
     volumes:
@@ -175,9 +200,11 @@ services:
   sonarr:
     image: linuxserver/sonarr:latest
     container_name: sonarr
+    networks:
+      - $NETWORK_NAME
     environment:
-      - PUID=1000
-      - PGID=1000
+      - PUID=$PUID
+      - PGID=$PGID
       - TZ=$TIMEZONE
     volumes:
       - $MOUNT/series:/tv
@@ -190,9 +217,11 @@ services:
   radarr:
     image: linuxserver/radarr:latest
     container_name: radarr
+    networks:
+      - $NETWORK_NAME
     environment:
-      - PUID=1000
-      - PGID=1000
+      - PUID=$PUID
+      - PGID=$PGID
       - TZ=$TIMEZONE
     volumes:
       - $MOUNT/movies:/movies
@@ -205,9 +234,11 @@ services:
   prowlarr:
     image: linuxserver/prowlarr:latest
     container_name: prowlarr
+    networks:
+      - $NETWORK_NAME
     environment:
-      - PUID=1000
-      - PGID=1000
+      - PUID=$PUID
+      - PGID=$PGID
       - TZ=$TIMEZONE
     volumes:
       - $MOUNT/config/prowlarr:/config
@@ -218,9 +249,11 @@ services:
   qbittorrent:
     image: linuxserver/qbittorrent:latest
     container_name: qbittorrent
+    networks:
+      - $NETWORK_NAME
     environment:
-      - PUID=1000
-      - PGID=1000
+      - PUID=$PUID
+      - PGID=$PGID
       - TZ=$TIMEZONE
       - WEBUI_PORT=8080
     volumes:
@@ -235,9 +268,11 @@ services:
   bazarr:
     image: linuxserver/bazarr:latest
     container_name: bazarr
+    networks:
+      - $NETWORK_NAME
     environment:
-      - PUID=1000
-      - PGID=1000
+      - PUID=$PUID
+      - PGID=$PGID
       - TZ=$TIMEZONE
     volumes:
       - $MOUNT/config/bazarr:/config
@@ -246,13 +281,29 @@ services:
     ports:
       - "6767:6767"
     restart: unless-stopped
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
+    networks:
+      - $NETWORK_NAME
+    environment:
+      - TZ=$TIMEZONE
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_POLL_INTERVAL=300
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+networks:
+  $NETWORK_NAME:
+    external: true
 EOL
 
 ####################################
 # Start stack
 ####################################
 cd "$MOUNT/config"
-
 if command_exists docker-compose; then
     docker-compose pull
     docker-compose up -d
@@ -261,15 +312,66 @@ else
     docker compose up -d
 fi
 
+####################################
+# Automated backup for configs
+####################################
+BACKUP_DIR="$MOUNT/backup"
+mkdir -p "$BACKUP_DIR"
+
+BACKUP_SCRIPT="$MOUNT/config/backup-configs.sh"
+cat > "$BACKUP_SCRIPT" <<'EOL'
+#!/bin/bash
+# Backup container configs
+BACKUP_DIR="/mnt/media-server/backup"
+CONFIG_DIR="/mnt/media-server/config"
+DATE=$(date +%F_%H-%M-%S)
+MAX_BACKUPS=7
+
+tar -czf "$BACKUP_DIR/config_$DATE.tar.gz" -C "$CONFIG_DIR" .
+cd "$BACKUP_DIR"
+ls -1tr | head -n -$MAX_BACKUPS | xargs -d '\n' rm -f 2>/dev/null || true
+EOL
+
+chmod +x "$BACKUP_SCRIPT"
+
+sudo tee /etc/systemd/system/media-backup.service > /dev/null <<EOF
+[Unit]
+Description=Backup Media Server Configs
+
+[Service]
+Type=oneshot
+ExecStart=$BACKUP_SCRIPT
+EOF
+
+sudo tee /etc/systemd/system/media-backup.timer > /dev/null <<EOF
+[Unit]
+Description=Daily Backup of Media Server Configs
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now media-backup.timer
+
+echo "✅ Automated daily backups enabled in $BACKUP_DIR (last 7 kept)"
+
 echo "======================================"
-echo " JellyfinXArrStack_Fail2Ban (Debian)"
+echo " JellyfinXArrStack_Fail2Ban (Debian Desktop, Production + Backup)"
 echo "======================================"
-echo "✔ Disk mounted on boot"
+echo "✔ Disk partitioned and mounted"
 echo "✔ Auto-login enabled"
+echo "✔ System won't sleep / screen lock disabled"
 echo "✔ Firewall active"
 echo "✔ Fail2Ban running"
 echo "✔ Automatic updates enabled"
-echo "✔ Containers running"
+echo "✔ Docker network created: $NETWORK_NAME"
+echo "✔ Containers running (with Watchtower auto-updates)"
+echo "✔ Daily automated backups of container configs enabled"
 echo ""
 echo "Manage stack:"
 echo "cd $MOUNT/config && docker compose ps"
