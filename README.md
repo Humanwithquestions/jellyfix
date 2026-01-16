@@ -38,15 +38,7 @@ Jellyfix is intended for fresh servers or dedicated media disks.
 
 🖥️ Supported Systems
 
-✅ Ubuntu 20.04 LTS
-
-✅ Ubuntu 22.04 LTS
-
-✅ Ubuntu 24.04 LTS
-
-❌ Not recommended for desktops
-
-❌ Not recommended for systems with existing important data
+debian
 
 📦 What Jellyfix Installs
 Component	Purpose
