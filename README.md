@@ -1,4 +1,4 @@
-#🍿 Jellyfix – Automated Jellyfin Media Server Stack
+🍿 Jellyfix – Automated Jellyfin Media Server Stack
 
 Jellyfix is an all-in-one Ubuntu media server installer that automatically sets up:
 
@@ -28,7 +28,7 @@ Disk formatting & mounting
 
 All with one script.
 
-#⚠️ Important Warning
+⚠️ Important Warning
 
 This script can format disks.
 
@@ -48,7 +48,7 @@ Jellyfix is intended for fresh servers or dedicated media disks.
 
 ❌ Not recommended for systems with existing important data
 
-#📦 What Jellyfix Installs
+📦 What Jellyfix Installs
 Component	Purpose
 Docker	Container runtime
 Docker Compose	Container orchestration
@@ -136,7 +136,7 @@ Folders created automatically:
     ├── bazarr
     └── portainer
 
-#🌐 Access Your Services
+🌐 Access Your Services
 
 Replace <SERVER-IP> with your server’s IP address.
 
