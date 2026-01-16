@@ -1,112 +1,266 @@
-# jellyfix
+🍿 Jellyfix – Automated Jellyfin Media Server Stack
 
-Automated setup scripts for a home media server on Ubuntu. Installs Jellyfin, Sonarr, Radarr, Prowlarr, qBittorrent, Bazarr, and Portainer using Docker and Docker Compose.
+Jellyfix is an all-in-one Ubuntu media server installer that automatically sets up:
 
-Two versions are included:
+Jellyfin
 
-Bare-minimum version – lightweight setup for small drives, only essential services.
+Sonarr
 
-Fail2Ban version – includes Fail2Ban to protect SSH from repeated login attempts.
+Radarr
 
-# Features
+Prowlarr
 
--Automatic disk detection, formatting, and mounting.
+qBittorrent
 
--Creates folder structure:
+Bazarr
 
--/movies – for movie files
+Portainer
 
--/series – for TV shows
+Docker & Docker Compose
 
--/config – for container configurations
+Firewall (UFW)
 
--Installs Docker & Docker Compose if not present.
+Fail2Ban
 
--Sets timezone and enables auto-login.
+Automatic security updates
 
--Configures DNS.
+Disk formatting & mounting
 
--Enables UFW firewall and opens required ports.
+All with one script.
 
--Enables automatic system updates.
+⚠️ Important Warning
 
--Fully configured docker-compose.yml for all services.
+This script can format disks.
 
--Optional Fail2Ban protection (only in Fail2Ban version).
+Make sure you select the correct disk, or data loss WILL occur.
 
--Pulls and starts all Docker containers automatically.
+Jellyfix is intended for fresh servers or dedicated media disks.
 
--Requirements
+🖥️ Supported Systems
 
--Fresh Ubuntu Server installation.
+✅ Ubuntu 20.04 LTS
 
--One additional hard disk for media and configuration.
+✅ Ubuntu 22.04 LTS
 
--Internet connection.
+✅ Ubuntu 24.04 LTS
 
-# Installation
-1. Bare-minimum version
+❌ Not recommended for desktops
 
-Run the following commands:
+❌ Not recommended for systems with existing important data
 
-curl -fsSL https://raw.githubusercontent.com/Humanwithquestions/jellyfix/main/JellyfinXArrStack.sh -o JellyfinXArrStack.sh
-chmod +x JellyfinXArrStack.sh
-./JellyfinXArrStack.sh
+📦 What Jellyfix Installs
+Component	Purpose
+Docker	Container runtime
+Docker Compose	Container orchestration
+Jellyfin	Media server
+Sonarr	TV automation
+Radarr	Movie automation
+Prowlarr	Indexer manager
+qBittorrent	Torrent client
+Bazarr	Subtitle management
+Portainer	Docker UI
+UFW	Firewall
+Fail2Ban	SSH brute-force protection
+Unattended Upgrades	Automatic security updates
+🚀 Installation
+1️⃣ Prepare Your Server
+
+Update your system and install Git:
+
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y git
+
+2️⃣ Clone the Repository
+git clone https://github.com/Humanwithquestions/jellyfix.git
+cd jellyfix
+
+3️⃣ Make the Script Executable
+chmod +x jellyfix.sh
 
 
-Follow the prompts:
+(Replace jellyfix.sh with the actual script name if different.)
 
-Select disk and confirm formatting if necessary.
-
-Set your timezone.
-https://www.timeanddate.com/time/map/
-
-The script will automatically install Docker, set up folders, configure firewall, and start all containers.
-
-2. Fail2Ban version
-
-Run the Fail2Ban script for added SSH protection:
-
-curl -fsSL https://raw.githubusercontent.com/Humanwithquestions/jellyfix/main/JellyfinXArrStack_Fail2Ban.sh -o JellyfinXArrStack_Fail2Ban.sh
-chmod +x JellyfinXArrStack_Fail2Ban.sh
-./JellyfinXArrStack_Fail2Ban.sh
+4️⃣ Run the Installer
+sudo ./jellyfix.sh
 
 
-Same prompts as above, with Fail2Ban installed and running to block repeated login attempts.
+⚠️ Must be run with sudo (disk mounting, firewall, Docker install).
 
-Accessing Services
-Service	    Port	    Notes
-Jellyfin	8096	Media server UI
-Portainer	9000	Docker management UI
-Sonarr	    8989	TV show automation
-Radarr	    7878	Movie automation
-Prowlarr	9696	Indexer manager
-qBittorrent	8080	Torrent client
-Bazarr	    6767	Subtitle management
+🧭 Installation Prompts Explained
 
-Access services via browser: http://YOUR_SERVER_IP:PORT
+During installation, Jellyfix will ask you for:
 
-Security Notes
+🕒 Timezone
 
-Bare-minimum version relies on UFW firewall only.
+Example:
 
-Fail2Ban version automatically blocks IPs after repeated failed SSH login attempts.
+Europe/Brussels
+America/New_York
 
-For additional security:
+💽 Disk Selection
 
-Use SSH key authentication and disable passwords.
+You will see a list of available disks:
 
-Keep Docker and container images updated.
+/dev/sdb
+/dev/nvme0n1
 
-Notes
 
-Scripts are optimized for small drives; no backup system included.
+Choose the disk dedicated to media storage.
 
-Docker volumes and configurations are stored in /mnt/media-server/config.
+🧹 Disk Formatting
 
-Only required ports are opened by UFW; all other connections are blocked.
+You will be asked if the disk is already EXT4:
 
-License
+y → Keep data
 
-MIT License – free to use and modify.
--Made by TerminalX Group-
+n → Format disk (DESTROYS DATA)
+
+📂 Default Directory Structure
+
+Jellyfix mounts your disk at:
+
+/mnt/media-server
+
+
+Folders created automatically:
+
+/mnt/media-server/
+├── movies
+├── series
+└── config
+    ├── jellyfin
+    ├── sonarr
+    ├── radarr
+    ├── prowlarr
+    ├── qbittorrent
+    ├── bazarr
+    └── portainer
+
+🌐 Access Your Services
+
+Replace <SERVER-IP> with your server’s IP address.
+
+Service	URL
+Jellyfin	http://<SERVER-IP>:8096
+Portainer	http://<SERVER-IP>:9000
+Sonarr	http://<SERVER-IP>:8989
+Radarr	http://<SERVER-IP>:7878
+Prowlarr	http://<SERVER-IP>:9696
+qBittorrent	http://<SERVER-IP>:8080
+Bazarr	http://<SERVER-IP>:6767
+🔥 Firewall Rules (UFW)
+
+The following ports are opened automatically:
+
+SSH (22)
+
+Jellyfin (8096)
+
+Portainer (9000)
+
+Sonarr (8989)
+
+Radarr (7878)
+
+Prowlarr (9696)
+
+qBittorrent (8080, 6881 TCP/UDP)
+
+Bazarr (6767)
+
+Check status:
+
+sudo ufw status
+
+🛡️ Security Features
+
+✅ Fail2Ban enabled (protects SSH)
+
+✅ Firewall enabled
+
+✅ Automatic security updates
+
+✅ Containers restart automatically
+
+🐳 Managing Containers
+
+Go to the config directory:
+
+cd /mnt/media-server/config
+
+
+Check status:
+
+docker compose ps
+
+
+Restart stack:
+
+docker compose restart
+
+
+Stop stack:
+
+docker compose down
+
+
+Update containers:
+
+docker compose pull
+docker compose up -d
+
+❓ Troubleshooting
+Docker permission denied
+
+Log out and back in, or reboot:
+
+reboot
+
+Disk not mounting on reboot
+
+Check:
+
+cat /etc/fstab
+
+Containers not starting
+
+View logs:
+
+docker compose logs -f
+
+🧠 Recommended Next Steps
+
+Configure Sonarr/Radarr download paths
+
+Set qBittorrent categories
+
+Connect Prowlarr indexers
+
+Secure services with a reverse proxy (Traefik / Caddy)
+
+🧩 Planned Improvements
+
+HTTPS support (Traefik)
+
+VPN support (Gluetun)
+
+Non-interactive install flags
+
+Debian support
+
+GPU transcoding options
+
+📜 Disclaimer
+
+This project is provided as-is.
+The author is not responsible for data loss or misconfiguration.
+
+⭐ Support the Project
+
+If Jellyfix helped you:
+
+⭐ Star the repo
+
+🐛 Open issues
+
+💡 Submit pull requests
