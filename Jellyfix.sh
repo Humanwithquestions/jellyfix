@@ -14,13 +14,13 @@ command_exists() {
 }
 
 ####################################
-# Ensure required tools
+# Required packages
 ####################################
 sudo apt update
 sudo apt install -y ca-certificates curl gnupg lsb-release ufw unattended-upgrades fail2ban parted tar
 
 ####################################
-# Install Docker (Debian)
+# Docker installation
 ####################################
 if ! command_exists docker; then
     echo "Installing Docker..."
@@ -36,23 +36,31 @@ https://download.docker.com/linux/debian $(lsb_release -cs) stable" | \
 fi
 
 ####################################
-# Docker Compose (legacy fallback)
+# Legacy Docker Compose fallback
 ####################################
 if ! command_exists docker-compose; then
-    echo "Installing docker-compose (legacy)..."
+    echo "Installing legacy docker-compose..."
     sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" \
         -o /usr/local/bin/docker-compose
     sudo chmod +x /usr/local/bin/docker-compose
 fi
 
 ####################################
-# Timezone
+# Timezone input safely
 ####################################
-read -p "Enter your timezone (e.g., Europe/Brussels): " TIMEZONE
-sudo timedatectl set-timezone "$TIMEZONE"
+while true; do
+    read -p "Enter your timezone (e.g., Europe/Brussels): " TIMEZONE
+    if timedatectl list-timezones | grep -qx "$TIMEZONE"; then
+        sudo timedatectl set-timezone "$TIMEZONE"
+        echo "Timezone set to $TIMEZONE"
+        break
+    else
+        echo "Invalid timezone, please try again."
+    fi
+done
 
 ####################################
-# Detect user IDs for containers
+# User info for containers
 ####################################
 USER_NAME=$(whoami)
 PUID=$(id -u "$USER_NAME")
@@ -70,13 +78,12 @@ ExecStart=-/sbin/agetty --autologin $USER_NAME --noclear %I \$TERM
 EOF
 
 ####################################
-# Prevent system sleep & screen lock (Desktop)
+# Prevent system idle / sleep
 ####################################
 sudo sed -i 's/#HandleLidSwitch=suspend/HandleLidSwitch=ignore/' /etc/systemd/logind.conf
 sudo sed -i 's/#HandleLidSwitchDocked=suspend/HandleLidSwitchDocked=ignore/' /etc/systemd/logind.conf
 sudo sed -i 's/#IdleAction=suspend/IdleAction=ignore/' /etc/systemd/logind.conf
 sudo systemctl restart systemd-logind
-
 sudo setterm -blank 0 -powerdown 0 -powersave off
 
 if command -v gsettings >/dev/null 2>&1; then
@@ -89,18 +96,19 @@ fi
 ####################################
 echo "Available drives:"
 lsblk -d -o NAME,SIZE,MODEL
-read -p "Select the disk to use for media server (e.g., sdb): " DISK_NAME
-DISK="/dev/$DISK_NAME"
+read -p "Select disk for media server (e.g., sdb): " DISKNAME
+DISK="/dev/$DISKNAME"
 
 if [ ! -b "$DISK" ]; then
     echo "Disk not found!"
     exit 1
 fi
 
-echo "⚠ WARNING: All data on $DISK will be destroyed!"
+echo "⚠ WARNING: All data on $DISK will be erased!"
 read -p "Type 'YES' to continue: " CONFIRM
+
 if [[ "$CONFIRM" != "YES" ]]; then
-    echo "Aborting."
+    echo "Aborted."
     exit 1
 fi
 
@@ -120,7 +128,7 @@ echo "UUID=$UUID $MOUNT ext4 defaults 0 2" | sudo tee -a /etc/fstab
 echo "✅ Disk $DISK partitioned and mounted at $MOUNT"
 
 ####################################
-# Media folders
+# Create media folders
 ####################################
 sudo mkdir -p "$MOUNT/movies" "$MOUNT/series" "$MOUNT/config"
 sudo chown -R $USER_NAME:$USER_NAME "$MOUNT"
@@ -149,17 +157,17 @@ sudo ufw allow 6767/tcp
 sudo ufw --force enable
 
 ####################################
-# Automatic Updates & Fail2Ban
+# Automatic updates & Fail2Ban
 ####################################
 sudo systemctl enable unattended-upgrades fail2ban
 sudo systemctl start unattended-upgrades fail2ban
 
 ####################################
-# Docker network for isolation
+# Docker network
 ####################################
-NETWORK_NAME="media"
-if ! docker network inspect "$NETWORK_NAME" >/dev/null 2>&1; then
-    docker network create "$NETWORK_NAME"
+NETWORK="media"
+if ! docker network inspect "$NETWORK" >/dev/null 2>&1; then
+    docker network create "$NETWORK"
 fi
 
 ####################################
@@ -174,7 +182,7 @@ services:
     image: jellyfin/jellyfin:latest
     container_name: jellyfin
     networks:
-      - $NETWORK_NAME
+      - $NETWORK
     ports:
       - "8096:8096"
     volumes:
@@ -189,7 +197,7 @@ services:
     image: portainer/portainer-ce:latest
     container_name: portainer
     networks:
-      - $NETWORK_NAME
+      - $NETWORK
     ports:
       - "9000:9000"
     volumes:
@@ -201,7 +209,7 @@ services:
     image: linuxserver/sonarr:latest
     container_name: sonarr
     networks:
-      - $NETWORK_NAME
+      - $NETWORK
     environment:
       - PUID=$PUID
       - PGID=$PGID
@@ -218,7 +226,7 @@ services:
     image: linuxserver/radarr:latest
     container_name: radarr
     networks:
-      - $NETWORK_NAME
+      - $NETWORK
     environment:
       - PUID=$PUID
       - PGID=$PGID
@@ -235,7 +243,7 @@ services:
     image: linuxserver/prowlarr:latest
     container_name: prowlarr
     networks:
-      - $NETWORK_NAME
+      - $NETWORK
     environment:
       - PUID=$PUID
       - PGID=$PGID
@@ -250,7 +258,7 @@ services:
     image: linuxserver/qbittorrent:latest
     container_name: qbittorrent
     networks:
-      - $NETWORK_NAME
+      - $NETWORK
     environment:
       - PUID=$PUID
       - PGID=$PGID
@@ -269,7 +277,7 @@ services:
     image: linuxserver/bazarr:latest
     container_name: bazarr
     networks:
-      - $NETWORK_NAME
+      - $NETWORK
     environment:
       - PUID=$PUID
       - PGID=$PGID
@@ -286,7 +294,7 @@ services:
     image: containrrr/watchtower:latest
     container_name: watchtower
     networks:
-      - $NETWORK_NAME
+      - $NETWORK
     environment:
       - TZ=$TIMEZONE
       - WATCHTOWER_CLEANUP=true
@@ -296,7 +304,7 @@ services:
     restart: unless-stopped
 
 networks:
-  $NETWORK_NAME:
+  $NETWORK:
     external: true
 EOL
 
@@ -313,7 +321,7 @@ else
 fi
 
 ####################################
-# Automated backup for configs
+# Backup container configs
 ####################################
 BACKUP_DIR="$MOUNT/backup"
 mkdir -p "$BACKUP_DIR"
@@ -336,7 +344,7 @@ chmod +x "$BACKUP_SCRIPT"
 
 sudo tee /etc/systemd/system/media-backup.service > /dev/null <<EOF
 [Unit]
-Description=Backup Media Server Configs
+Description=Backup media server configs
 
 [Service]
 Type=oneshot
@@ -345,7 +353,7 @@ EOF
 
 sudo tee /etc/systemd/system/media-backup.timer > /dev/null <<EOF
 [Unit]
-Description=Daily Backup of Media Server Configs
+Description=Daily backup of media server configs
 
 [Timer]
 OnCalendar=daily
@@ -358,20 +366,20 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable --now media-backup.timer
 
-echo "✅ Automated daily backups enabled in $BACKUP_DIR (last 7 kept)"
+echo "✅ Daily automatic backups enabled in $BACKUP_DIR (last 7 kept)"
 
 echo "======================================"
 echo " JellyfinXArrStack_Fail2Ban (Debian Desktop, Production + Backup)"
 echo "======================================"
 echo "✔ Disk partitioned and mounted"
 echo "✔ Auto-login enabled"
-echo "✔ System won't sleep / screen lock disabled"
+echo "✔ System sleep prevented / screensaver disabled"
 echo "✔ Firewall active"
 echo "✔ Fail2Ban running"
 echo "✔ Automatic updates enabled"
-echo "✔ Docker network created: $NETWORK_NAME"
+echo "✔ Docker network created: $NETWORK"
 echo "✔ Containers running (with Watchtower auto-updates)"
-echo "✔ Daily automated backups of container configs enabled"
+echo "✔ Daily automatic backups enabled"
 echo ""
 echo "Manage stack:"
 echo "cd $MOUNT/config && docker compose ps"
