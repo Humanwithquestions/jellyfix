@@ -1,29 +1,29 @@
 #!/bin/bash
 
-# JellyfinXArrStack_Fail2Ban - Debian Desktop Media Server Setup (Productie + Backup)
+# JellyfinXArrStack_Fail2Ban - Debian Desktop Media Server Setup (Production + Backup)
 # User: Boss
-# -Gemaakt door TerminalX Group-
+# -Created by TerminalX Group-
 
 set -e
 
-echo "Start setup van JellyfinXArrStack voor Debian Desktop (Productie + Backup)..."
+echo "Starting JellyfinXArrStack setup for Debian Desktop (Production + Backup)..."
 
-# Controleer of een commando bestaat
+# Function to check if a command exists
 command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
 ####################################
-# Vereiste pakketten
+# Required packages
 ####################################
 sudo apt update
 sudo apt install -y ca-certificates curl gnupg lsb-release ufw unattended-upgrades fail2ban parted tar
 
 ####################################
-# Docker installatie
+# Docker installation
 ####################################
 if ! command_exists docker; then
-    echo "Docker installeren..."
+    echo "Installing Docker..."
     sudo mkdir -p /etc/apt/keyrings
     curl -fsSL https://download.docker.com/linux/debian/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] \
@@ -39,77 +39,93 @@ fi
 # Legacy Docker Compose fallback
 ####################################
 if ! command_exists docker-compose; then
-    echo "Legacy docker-compose installeren..."
+    echo "Installing legacy docker-compose..."
     sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" \
         -o /usr/local/bin/docker-compose
     sudo chmod +x /usr/local/bin/docker-compose
 fi
 
 ####################################
-# Tijdzone invoer veilig
+# Timezone input (safe)
 ####################################
 while true; do
-    read -p "Voer je tijdzone in (bijv. Europe/Brussels): " TIJDZONE
-    TIJDZONE=${TIJDZONE:-Europe/Brussels}  # default
-    if timedatectl list-timezones | grep -qx "$TIJDZONE"; then
-        sudo timedatectl set-timezone "$TIJDZONE" || echo "⚠ Waarschuwing: tijdzone niet ingesteld, controleer handmatig"
-        echo "Tijdzone ingesteld op $TIJDZONE"
+    read -p "Enter your timezone (e.g., Europe/Brussels): " TIMEZONE
+    TIMEZONE=${TIMEZONE:-Europe/Brussels}  # default if empty
+    if timedatectl list-timezones | grep -qx "$TIMEZONE"; then
+        sudo timedatectl set-timezone "$TIMEZONE" || echo "⚠ Warning: Could not set timezone, check manually"
+        echo "Timezone set to $TIMEZONE"
         break
     else
-        echo "Ongeldige tijdzone. Probeer opnieuw."
+        echo "Invalid timezone. Please try again."
     fi
 done
 
 ####################################
-# Gebruikersinfo voor containers
+# User info for containers
 ####################################
 USER_NAME=$(whoami)
 PUID=$(id -u "$USER_NAME")
 PGID=$(id -g "$USER_NAME")
-echo "Gebruik PUID=$PUID en PGID=$PGID voor containers."
+echo "Using PUID=$PUID and PGID=$PGID for containers."
 
 ####################################
-# Auto-login op tty1
+# Optional Auto-login (only on physical console)
 ####################################
-sudo mkdir -p /etc/systemd/system/getty@tty1.service.d
-sudo tee /etc/systemd/system/getty@tty1.service.d/override.conf > /dev/null <<EOF
+read -p "Enable auto-login on tty1? (y/n): " AUTOLOGIN
+if [[ "$AUTOLOGIN" == "y" ]]; then
+    sudo mkdir -p /etc/systemd/system/getty@tty1.service.d
+    sudo tee /etc/systemd/system/getty@tty1.service.d/override.conf > /dev/null <<EOF
 [Service]
 ExecStart=
 ExecStart=-/sbin/agetty --autologin $USER_NAME --noclear %I \$TERM
 EOF
+    echo "Auto-login enabled on tty1"
+fi
 
 ####################################
-# Voorkom idle / slaapstand
+# Prevent sleep / idle, keep GUI on
 ####################################
+echo "Disabling screensaver, DPMS and sleep..."
+# For console (tty)
 sudo sed -i 's/#HandleLidSwitch=suspend/HandleLidSwitch=ignore/' /etc/systemd/logind.conf
 sudo sed -i 's/#HandleLidSwitchDocked=suspend/HandleLidSwitchDocked=ignore/' /etc/systemd/logind.conf
 sudo sed -i 's/#IdleAction=suspend/IdleAction=ignore/' /etc/systemd/logind.conf
 sudo systemctl restart systemd-logind
-sudo setterm -blank 0 -powerdown 0 -powersave off
 
+# For GUI (Xorg / Wayland)
 if command -v gsettings >/dev/null 2>&1; then
     gsettings set org.gnome.desktop.screensaver lock-enabled false || true
     gsettings set org.gnome.desktop.session idle-delay 0 || true
+    gsettings set org.gnome.desktop.screensaver idle-activation-enabled false || true
 fi
 
+# Disable DPMS / screen blanking
+if command -v xset >/dev/null 2>&1; then
+    xset s off
+    xset s noblank
+    xset -dpms
+fi
+
+echo "Sleep and idle disabled. GUI will stay on."
+
 ####################################
-# Schijf selectie en automatische partitionering
+# Disk selection and automatic partitioning
 ####################################
-echo "Beschikbare schijven:"
+echo "Available disks:"
 lsblk -d -o NAME,SIZE,MODEL
-read -p "Selecteer schijf voor mediaserver (bijv. sdb): " SCHIJFNAAM
-DISK="/dev/$SCHIJFNAAM"
+read -p "Select disk for media server (e.g., sdb): " DISKNAME
+DISK="/dev/$DISKNAME"
 
 if [ ! -b "$DISK" ]; then
-    echo "Schijf niet gevonden!"
+    echo "Disk not found!"
     exit 1
 fi
 
-echo "⚠ WAARSCHUWING: Alle data op $DISK wordt verwijderd!"
-read -p "Typ 'JA' om door te gaan: " CONFIRM
+echo "⚠ WARNING: All data on $DISK will be wiped!"
+read -p "Type 'YES' to continue: " CONFIRM
 
-if [[ "$CONFIRM" != "JA" ]]; then
-    echo "Afgebroken."
+if [[ "$CONFIRM" != "YES" ]]; then
+    echo "Aborted."
     exit 1
 fi
 
@@ -126,7 +142,7 @@ sudo mount "$PARTITION" "$MOUNT"
 UUID=$(sudo blkid -s UUID -o value "$PARTITION")
 grep -q "$UUID" /etc/fstab || \
 echo "UUID=$UUID $MOUNT ext4 defaults 0 2" | sudo tee -a /etc/fstab
-echo "✅ Schijf $DISK gepartitioneerd en gemount op $MOUNT"
+echo "✅ Disk $DISK partitioned and mounted at $MOUNT"
 
 ####################################
 # Media folders
@@ -158,13 +174,13 @@ sudo ufw allow 6767/tcp
 sudo ufw --force enable
 
 ####################################
-# Automatische updates & Fail2Ban
+# Automatic updates & Fail2Ban
 ####################################
 sudo systemctl enable unattended-upgrades fail2ban
 sudo systemctl start unattended-upgrades fail2ban
 
 ####################################
-# Docker netwerk
+# Docker network
 ####################################
 NETWORK="media"
 if ! docker network inspect "$NETWORK" >/dev/null 2>&1; then
@@ -191,7 +207,7 @@ services:
       - $MOUNT/series:/media/series
       - $MOUNT/config/jellyfin:/config
     environment:
-      - TZ=$TIJDZONE
+      - TZ=$TIMEZONE
     restart: unless-stopped
 
   portainer:
@@ -214,7 +230,7 @@ services:
     environment:
       - PUID=$PUID
       - PGID=$PGID
-      - TZ=$TIJDZONE
+      - TZ=$TIMEZONE
     volumes:
       - $MOUNT/series:/tv
       - $MOUNT/movies:/downloads
@@ -231,7 +247,7 @@ services:
     environment:
       - PUID=$PUID
       - PGID=$PGID
-      - TZ=$TIJDZONE
+      - TZ=$TIMEZONE
     volumes:
       - $MOUNT/movies:/movies
       - $MOUNT/movies:/downloads
@@ -248,7 +264,7 @@ services:
     environment:
       - PUID=$PUID
       - PGID=$PGID
-      - TZ=$TIJDZONE
+      - TZ=$TIMEZONE
     volumes:
       - $MOUNT/config/prowlarr:/config
     ports:
@@ -263,7 +279,7 @@ services:
     environment:
       - PUID=$PUID
       - PGID=$PGID
-      - TZ=$TIJDZONE
+      - TZ=$TIMEZONE
       - WEBUI_PORT=8080
     volumes:
       - $MOUNT/config/qbittorrent:/config
@@ -282,7 +298,7 @@ services:
     environment:
       - PUID=$PUID
       - PGID=$PGID
-      - TZ=$TIJDZONE
+      - TZ=$TIMEZONE
     volumes:
       - $MOUNT/config/bazarr:/config
       - $MOUNT/movies:/movies
@@ -297,7 +313,7 @@ services:
     networks:
       - $NETWORK
     environment:
-      - TZ=$TIJDZONE
+      - TZ=$TIMEZONE
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_POLL_INTERVAL=300
     volumes:
@@ -345,7 +361,7 @@ chmod +x "$BACKUP_SCRIPT"
 
 sudo tee /etc/systemd/system/media-backup.service > /dev/null <<EOF
 [Unit]
-Description=Backup configs van mediaserver
+Description=Backup configs of media server
 
 [Service]
 Type=oneshot
@@ -354,7 +370,7 @@ EOF
 
 sudo tee /etc/systemd/system/media-backup.timer > /dev/null <<EOF
 [Unit]
-Description=Dagelijkse backup van mediaserver configs
+Description=Daily backup of media server configs
 
 [Timer]
 OnCalendar=daily
@@ -367,20 +383,20 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable --now media-backup.timer
 
-echo "✅ Dagelijkse automatische backups ingeschakeld in $BACKUP_DIR (laatste 7 bewaard)"
+echo "✅ Daily automatic backups enabled at $BACKUP_DIR (last 7 kept)"
 
 echo "======================================"
-echo " JellyfinXArrStack_Fail2Ban (Debian Desktop, Productie + Backup)"
+echo " JellyfinXArrStack_Fail2Ban (Debian Desktop, Production + Backup)"
 echo "======================================"
-echo "✔ Schijf gepartitioneerd en gemount"
-echo "✔ Auto-login ingeschakeld"
-echo "✔ Slaapstand voorkomen / screensaver uitgeschakeld"
-echo "✔ Firewall actief"
-echo "✔ Fail2Ban draait"
-echo "✔ Automatische updates ingeschakeld"
-echo "✔ Docker netwerk aangemaakt: $NETWORK"
-echo "✔ Containers draaien (inclusief Watchtower automatische updates)"
-echo "✔ Dagelijkse automatische backups ingeschakeld"
+echo "✔ Disk partitioned and mounted"
+echo "✔ Auto-login enabled (if chosen)"
+echo "✔ Sleep/idle disabled, GUI stays on"
+echo "✔ Firewall active"
+echo "✔ Fail2Ban running"
+echo "✔ Automatic updates enabled"
+echo "✔ Docker network created: $NETWORK"
+echo "✔ Containers running (including Watchtower auto-updates)"
+echo "✔ Daily automatic backups enabled"
 echo ""
-echo "Beheer stack:"
+echo "Manage stack:"
 echo "cd $MOUNT/config && docker compose ps"
